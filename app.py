@@ -1,6 +1,6 @@
 import streamlit as st
 from tensorflow.keras.models import load_model
-from tensorflow.keras.preprocessing.sequence import pad_sequences
+import numpy as np  # <-- Notice we swapped pad_sequences for numpy!
 import pickle
 
 # 1. Setup the UI
@@ -8,15 +8,15 @@ st.set_page_config(page_title="AI Sentiment Analyzer", page_icon="🧠")
 st.title("🧠 AI Sentiment Analyzer")
 st.write("Type a movie review, tweet, or message below, and the AI will predict the underlying emotion!")
 
-# 2. Load the Brain and the Dictionary (Cached so it doesn't reload on every keystroke)
+
+# 2. Load the Brain and the Dictionary
 @st.cache_resource
 def load_ai():
-    # Load the math
     model = load_model("sentiment_model.keras")
-    # Load the dictionary (un-pickling)
     with open('tokenizer.pickle', 'rb') as handle:
         tokenizer = pickle.load(handle)
     return model, tokenizer
+
 
 model, tokenizer = load_ai()
 
@@ -25,23 +25,32 @@ user_input = st.text_area("Enter your text here:")
 
 if st.button("Analyze Sentiment"):
     if user_input:
-        # 4. Translate English to Math
-        # We MUST use the exact same max_length (120) from our training blueprint
         max_length = 120
-        
-        # Tokenize and pad
-        sequence = tokenizer.texts_to_sequences([user_input])
-        padded_sequence = pad_sequences(sequence, maxlen=max_length, padding='post', truncating='post')
-        
-        # 5. Predict the Emotion
-        prediction = model.predict(padded_sequence)[0][0]
-        positivity_score = prediction * 100
-        
-        # 6. Display the Results
-        st.markdown("---")
-        if prediction >= 0.5:
-            st.success(f"**Positive Emotion Detected!** ({positivity_score:.2f}% Positivity)")
+
+        # 4. Tokenize the input (Translate English to Math)
+        raw_sequence = tokenizer.texts_to_sequences([user_input])[0]
+
+        # Catch words the AI has never seen before
+        if len(raw_sequence) == 0:
+            st.warning("The AI doesn't recognize any of those words yet! Try a different phrasing.")
         else:
-            st.error(f"**Negative Emotion Detected!** ({positivity_score:.2f}% Positivity)")
+            # 5. THE FIX: The Echo Pad
+            # Instead of padding with random zeros, repeat the sentence to fill the 120 columns!
+            repeats = (max_length // len(raw_sequence)) + 1
+            echoed_sequence = (raw_sequence * repeats)[:max_length]
+
+            # Convert to the 2D matrix Keras expects
+            final_matrix = np.array([echoed_sequence])
+
+            # 6. Predict the Emotion
+            prediction = model.predict(final_matrix)[0][0]
+            positivity_score = prediction * 100
+
+            # 7. Display the Results
+            st.markdown("---")
+            if prediction >= 0.5:
+                st.success(f"**Positive Emotion Detected!** ({positivity_score:.2f}% Positivity)")
+            else:
+                st.error(f"**Negative Emotion Detected!** ({positivity_score:.2f}% Positivity)")
     else:
         st.warning("Please enter some text first!")
